@@ -1,0 +1,16 @@
+# runtime caches, not source
+data/cache/
+data/journal/
+data/decisions/
+# data/snapshot/ IS committed: it is what keeps the deployed demo honest
+# and functional when Yahoo blocks a serverless IP.
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+install.log
+exports/
+
+# third-party reference clones (TradingAgents, Kronos, remotion, hyperframes...) ---
+# all already public on GitHub, and 1.7 GB. Excluded from this repo AND from Vercel.
+vendor/

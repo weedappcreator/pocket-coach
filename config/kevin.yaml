@@ -1,0 +1,95 @@
+name: kevin
+version: 1
+description: >
+  Kevin's PocketOption rules, taken verbatim from the technical blueprint.
+  Every number here is a rule the trader stated, not a parameter chosen to
+  improve a backtest. If a value here changes, that is a strategy change, and
+  the backtest must be re-run before the change is believed.
+
+markets:
+  # The blueprint trades these OTC pairs, 1-5 minute expiries.
+  assets:
+    - EUR/USD OTC
+    - GBP/USD OTC
+    - USD/JPY OTC
+    - AUD/CAD OTC
+    - EUR/GBP OTC
+    - USD/CHF OTC
+    - NZD/USD OTC
+  timeframe: 5m
+  expiry_bars: 5            # 25 minutes on a 5m chart; blueprint ceiling is 5 bars
+  killzone_only: true       # no signals outside the London/NY overlap
+  news_blackout: true
+
+# Blueprint page 5. Weights must sum to 1.0.
+scoring:
+  weights:
+    rules_match: 0.40
+    timeframe_alignment: 0.20
+    momentum_confirmation: 0.15
+    key_level_context: 0.15
+    volatility_fit: 0.10
+  min_score: 70.0
+  min_score_visual: 80.0
+  min_rsi_oversold: 30.0
+  max_rsi_overbought: 70.0
+  min_chop_below: 61.8
+  min_atr_pct: 0.0
+  max_atr_pct: 0.35
+  min_vol_ratio: 0.5
+  max_vol_ratio: 2.5
+  max_zone_distance_pct: 0.30
+  adx_trend_min: 20.0
+  in_sample: true           # flips to false before any result is believed
+
+# The seven setups the trader named. Presence of >= 2 is the confluence rule.
+setups:
+  required_any:
+    - quasimodo
+    - third_touch
+    - breakout_retest
+    - abc_rejection
+    - doji_break
+    - engulfing
+    - rejection_wick
+  min_confluence: 1
+
+filters:
+  min_payout: 80.0
+  block_chop_above: 61.8
+  block_atr_pct_above: 0.35
+  block_vol_ratio_above: 2.5
+  block_timeframe_conflict: true
+  block_zone_too_close: 0.05
+  max_expiry_bars: 5
+  news_blackout: true
+
+risk:
+  max_stake_pct: 2.0
+  target_stake_pct: 1.5
+  daily_loss_limit_pct: 5.0
+  max_consecutive_losses: 3
+  min_payout: 80.0
+  min_score: 70.0
+  min_score_visual: 80.0
+  news_blackout_minutes: 5
+  max_signals_per_day: 10
+  allow_martingale: false
+  kelly_fraction: 0.25
+  max_edge_pp: 3.0
+  bankroll: 10000.0
+
+# Blueprint targets. A strategy is only shipped when it clears all of these.
+backtest_gate:
+  min_win_rate: 0.57
+  min_trades: 300
+  max_drawdown_pct: 15.0
+  alpha: 0.05
+  min_edge_pp: 3.0
+  in_sample: false          # walk-forward is the only acceptable mode
+
+# Guards against a scanner that fires on every bar. Firing constantly is not a
+# strategy, it is a coin flip with a 92% payout attached.
+scan:
+  max_setups_per_bar: 3
+  top_n: 5

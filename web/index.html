@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pocket Coach — risk-gated decision support</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#12161f; --panel2:#171c27; --line:#232a38;
+    --ink:#e6ebf5; --muted:#8b97ad; --dim:#5d6a80;
+    --call:#22c55e; --put:#ef4444; --warn:#f59e0b; --accent:#60a5fa;
+    --radius:10px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:24px}
+  h1{font-size:23px;margin:0 0 6px;letter-spacing:-.02em;font-weight:650}
+  .sub{color:var(--muted);font-size:14px;max-width:74ch;margin:0}
+  .banner{margin:18px 0 0;padding:12px 14px;border:1px solid #3a2f12;background:#1d1708;
+    border-radius:var(--radius);color:#e8d9a8;font-size:13.5px}
+  .banner b{color:#f5d67a}
+  nav{display:flex;gap:6px;margin:22px 0 20px;flex-wrap:wrap}
+  nav button{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+    padding:8px 14px;border-radius:8px;cursor:pointer;font-size:14px;font-family:inherit;
+    transition:background .18s cubic-bezier(.2,0,0,1),color .18s cubic-bezier(.2,0,0,1)}
+  nav button:hover{background:var(--panel2);color:var(--ink)}
+  nav button[aria-selected=true]{background:var(--accent);border-color:var(--accent);color:#08101f;font-weight:600}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:18px;margin-bottom:16px}
+  .card h2{font-size:14px;margin:0 0 4px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--muted);font-weight:600}
+  .grid{display:grid;gap:14px}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .g4{grid-template-columns:repeat(auto-fit,minmax(168px,1fr))}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:13px 14px}
+  .stat .k{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--dim);margin-bottom:5px}
+  .stat .v{font-size:21px;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+  .stat .n{font-size:12px;color:var(--muted);margin-top:3px}
+  .pos{color:var(--call)} .neg{color:var(--put)} .warn{color:var(--warn)} .muted{color:var(--muted)}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+  th{text-align:left;color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;
+    letter-spacing:.06em;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:9px 10px;border-bottom:1px solid #1b2130;vertical-align:top}
+  tr:last-child td{border-bottom:none}
+  .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;
+    letter-spacing:.03em;white-space:nowrap}
+  .t-call{background:#0d2f1c;color:#4ade80;border:1px solid #166534}
+  .t-put{background:#2f1113;color:#f87171;border:1px solid #7f1d1d}
+  .t-none{background:#1a1f2b;color:var(--muted);border:1px solid var(--line)}
+  .t-rev{background:#2a2210;color:var(--warn);border:1px solid #713f12}
+  .why{color:var(--muted);font-size:12.5px;margin-top:3px}
+  .bar{height:6px;background:#1e2534;border-radius:3px;overflow:hidden;min-width:70px}
+  .bar>i{display:block;height:100%;background:var(--accent);border-radius:3px}
+  .bar>i.low{background:var(--put)} .bar>i.mid{background:var(--warn)} .bar>i.hi{background:var(--call)}
+  .note{background:#0e1420;border:1px solid var(--line);border-left:3px solid var(--accent);
+    padding:10px 13px;border-radius:6px;font-size:13px;color:#c3cde0;margin-top:9px}
+  .note.w{border-left-color:var(--warn);background:#171307;color:#e0d2a4}
+  .note.e{border-left-color:var(--put);background:#1c0f11;color:#f0c2c2}
+  .note.ok{border-left-color:var(--call);background:#0c1710;color:#b6e6c4}
+  code{background:#1b2230;padding:1px 6px;border-radius:4px;font-size:12.5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#b9c6dd}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  select,input,button.act{background:var(--panel2);border:1px solid var(--line);color:var(--ink);
+    padding:8px 12px;border-radius:8px;font:inherit;font-size:14px}
+  button.act{cursor:pointer;background:var(--accent);border-color:var(--accent);color:#08101f;font-weight:600}
+  button.act:disabled{opacity:.5;cursor:not-allowed}
+  .load{color:var(--muted);font-size:13.5px;padding:22px 0}
+  .kv{display:flex;justify-content:space-between;gap:14px;padding:6px 0;
+    border-bottom:1px solid #1b2130;font-size:13.5px}
+  .kv:last-child{border:none} .kv span:first-child{color:var(--muted)}
+  .kv span:last-child{font-variant-numeric:tabular-nums}
+  .chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px}
+  .chip{background:#1a2130;border:1px solid var(--line);border-radius:6px;padding:4px 9px;font-size:12px}
+  .chip b{color:var(--accent);font-weight:600}
+  .arrow{color:var(--dim)}
+  details{margin-top:10px} summary{cursor:pointer;color:var(--muted);font-size:13px;padding:5px 0}
+  summary:hover{color:var(--ink)}
+  table.mx{font-size:12.5px} table.mx td{padding:5px 8px}
+  .spark{width:100%;height:120px;display:block}
+  .foot{margin-top:32px;padding-top:16px;border-top:1px solid var(--line);
+    color:var(--dim);font-size:12.5px}
+  .hidden{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Pocket Coach</h1>
+    <p class="sub">Decision support for short-expiry binary options. It reads candles, runs seven
+      named setups, prices the edge against the payout's break-even, and applies the trader's
+      risk rules. It does not place trades, and it is built to refuse far more often than it approves.</p>
+    <div class="banner">
+      <b>Read this first.</b> The backtest on real data currently shows a <b>42.3% win rate against a
+      52.1% break-even</b> — the setup logic beats a coin flip by about 3 points but loses badly at a
+      92% payout. That is the honest result, and a system that hid it would be worthless. OTC candles
+      here are a <b>public-market proxy</b>, not PocketOption's synthetic OTC feed.
+    </div>
+  </header>
+
+  <nav role="tablist">
+    <button role="tab" data-tab="live" aria-selected="true">Live scan</button>
+    <button role="tab" data-tab="backtest" aria-selected="false">Backtest</button>
+    <button role="tab" data-tab="journal" aria-selected="false">Journal</button>
+    <button role="tab" data-tab="method" aria-selected="false">How it decides</button>
+  </nav>
+
+  <section id="live">
+    <div class="row">
+      <label class="muted" for="period">Window</label>
+      <select id="period"><option>5d</option><option>1mo</option><option>3mo</option></select>
+      <label class="muted" style="display:flex;gap:6px;align-items:center">
+        <input type="checkbox" id="kz"> Ignore session filter (demo)
+      </label>
+      <button class="act" id="scanBtn">Run scan</button>
+      <span class="muted" id="scanMeta"></span>
+    </div>
+    <div id="liveOut"><div class="load">Press <b>Run scan</b> to evaluate the current market.</div></div>
+  </section>
+
+  <section id="backtest" class="hidden">
+    <div class="row">
+      <label class="muted" for="btsym">Instrument</label>
+      <select id="btsym"></select>
+      <label class="muted" for="btbars">Bars</label>
+      <select id="btbars"><option>1500</option><option selected>3000</option><option>8000</option></select>
+      <button class="act" id="btBtn">Run backtest</button>
+      <span class="muted" id="btMeta"></span>
+    </div>
+    <div id="btOut"><div class="load">Run a backtest to grade the strategy against the blueprint's gate.</div></div>
+  </section>
+
+  <section id="journal" class="hidden">
+    <div class="row">
+      <button class="act" id="jBtn">Load journal</button>
+      <label class="muted" for="jfile">or import a CSV</label>
+      <input type="file" id="jfile" accept=".csv" style="max-width:300px">
+    </div>
+    <div id="jOut"><div class="load">The journal is what makes the rules falsifiable. Load it, or import a
+      PocketOption export / your own CSV.</div></div>
+  </section>
+
+  <section id="method" class="hidden">
+    <div class="card">
+      <h2>Decision chain</h2>
+      <p class="muted" style="margin:0 0 10px">Every stage may refuse. No stage may promote. That
+        asymmetry is why a later stage can tighten a verdict but never loosen it.</p>
+      <div class="chain" id="chain"></div>
+    </div>
+    <div class="card">
+      <h2>The maths that decides everything</h2>
+      <div id="math"></div>
+    </div>
+    <div class="card">
+      <h2>What this system will not do</h2>
+      <div class="note">It will not place a trade. There is no order endpoint, by design.</div>
+      <div class="note e">It will not call a coin flip an edge. At a 92% payout, break-even is 52.08%.
+        A 50% win rate loses 4% of every stake.</div>
+      <div class="note w">It will not treat public EUR/USD candles as PocketOption OTC. Those are
+        different price processes; the proxy is labelled everywhere it appears.</div>
+      <div class="note w">It will not report a win rate without its confidence interval and its
+        break-even. A win rate on its own is not evidence.</div>
+    </div>
+  </section>
+
+  <div class="foot">
+    Pattern detection runs on numpy buffers (~26&times; faster than row-wise pandas). Signals are
+    cached for 60s server-side. Nothing here is financial advice.
+  </div>
+</div>
+
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const fmtPct = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v*100).toFixed(2)+'%';
+const fmtPP  = v => (v===null||v===undefined||isNaN(v)) ? '—' : (v>=0?'+':'')+v.toFixed(2)+'pp';
+const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cls = v => v>0?'pos':v<0?'neg':'muted';
+const esc1 = n => parseFloat(n).toFixed(1);
+
+$$('nav button').forEach(b=>b.onclick=()=>{
+  $$('nav button').forEach(x=>x.setAttribute('aria-selected', x===b));
+  $$('section').forEach(s=>s.classList.add('hidden'));
+  $('#'+b.dataset.tab).classList.remove('hidden');
+});
+
+async function api(url){
+  const r = await fetch(url);
+  if(!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+function note(cls_,html){ return `<div class="note ${cls_}">${html}</div>`; }
+
+$('#scanBtn').onclick = async () => {
+  const btn=$('#scanBtn'); btn.disabled=true; btn.textContent='Scanning…';
+  $('#scanMeta').textContent='';
+  $('#liveOut').innerHTML='<div class="load">Reading candles, running detectors, pricing edge, applying risk rules…</div>';
+  try{
+    const kz = $('#kz').checked ? 'true':'false';
+    const d = await api(`/api/scan?period=${$('#period').value}&force_killzone=${kz}&refresh=true`);
+    $('#scanMeta').textContent = `${d.duration_ms} ms · ${d.assets.length} instruments`;
+    $('#chain').innerHTML = d.stages.map(s=>`<span class="chip">${esc(s.stage)} <b>${esc(s.agent)}</b></span>`).join('<span class="arrow">→</span>');
+    renderLive(d);
+  }catch(e){ $('#liveOut').innerHTML = note('e','Scan failed: '+esc(e.message)); }
+  btn.disabled=false; btn.textContent='Run scan';
+};
+
+function renderLive(d){
+  const out=[]; const prov=d.provenance||[];
+  const anySession = prov.some(p=>p.session_ok===false);
+  if(anySession){
+    const shut = prov.filter(p=>p.session_ok===false).map(p=>p.asset);
+    out.push(note('w', `<b>Kill zone closed.</b> ${esc(shut.join(', '))} sit outside the London/NY
+      overlap, so nothing was ranked for them. Tick <i>Ignore session filter</i> to see what the
+      scanner would say anyway.`));
+  }
+  const cands = d.candidates||[];
+  const live = cands.filter(c=>c.verdict.tradeable);
+  const best = d.best;
+  out.push(`<div class="card"><h2>Outcome</h2>
+    <div class="grid g3">
+      <div class="stat"><div class="k">Verdict</div>
+        <div class="v ${best?'pos':'warn'}">${best?esc(best.direction.toUpperCase()):'NO TRADE'}</div>
+        <div class="n">${best? esc((best.setups||[]).join(', ')) : 'nothing cleared the gate'}</div></div>
+      <div class="stat"><div class="k">Candidates ranked</div><div class="v">${cands.length}</div>
+        <div class="n">${live.length} passed scoring</div></div>
+      <div class="stat"><div class="k">Latency</div><div class="v">${d.duration_ms}<span style="font-size:14px"> ms</span></div>
+        <div class="n">budget is 20,000 ms</div></div>
+    </div>`);
+  if(!best) out.push(note('w', `<b>No tradeable setup.</b> The highest score was
+    ${cands.length?esc1(cands[0].score):'—'} against a threshold of 80 for OTC. This is the system
+    working: a coin flip at 92% payout loses about 4% per stake, so “no trade” is frequently correct.`));
+  out.push('</div>');
+
+  if(cands.length){
+    out.push(`<div class="card"><h2>Ranked candidates</h2>
+      <table><thead><tr><th>Instrument</th><th>Side</th><th>Score</th><th>Setups</th>
+      <th>Model win rate</th><th>Edge</th><th>Verdict</th></tr></thead><tbody>`);
+    for(const c of cands){
+      const e=c.edge||{}; const p=e.p_technical; const ed=e.edge_pp_technical;
+      const v=c.verdict;
+      const t = v.tradeable ? (v.value==='CALL'?'t-call':'t-put') : (v.value==='REVIEW'?'t-rev':'t-none');
+      out.push(`<tr>
+        <td>${esc(c.asset)}</td>
+        <td><span class="tag ${c.direction==='call'?'t-call':'t-put'}">${esc(c.direction.toUpperCase())}</span></td>
+        <td><div class="bar"><i class="${c.score>=80?'hi':c.score>=60?'mid':'low'}" style="width:${Math.min(100,c.score)}%"></i></div>
+            <span class="muted">${esc1(c.score)}</span></td>
+        <td class="muted">${esc((c.setups||[]).join(', '))}</td>
+        <td>${p===undefined?'—':fmtPct(p)}</td>
+        <td class="${ed===undefined?'muted':cls(ed)}">${ed===undefined?'—':fmtPP(ed)}</td>
+        <td><span class="tag ${t}">${esc(v.value)}</span></td></tr>`);
+      if(v.reasons?.length){
+        out.push(`<tr><td colspan="7" class="why">${v.reasons.map(esc).join(' &nbsp;·&nbsp; ')}</td></tr>`);
+      }
+    }
+    out.push('</tbody></table></div>');
+  }
+
+  out.push(`<div class="card"><h2>Data provenance</h2>
+    <p class="muted" style="margin:0 0 10px">Where every number came from, and how far it can be trusted.</p>
+    <table class="mx"><thead><tr><th>Instrument</th><th>Bars</th><th>Feed</th><th>Vol (ann.)</th>
+    <th>Plausible</th><th>Session</th><th>Structure</th></tr></thead><tbody>`);
+  for(const p of prov){
+    out.push(`<tr><td>${esc(p.asset)}</td><td>${p.rows}</td>
+      <td>${p.is_proxy?'<span class="tag t-rev">public proxy</span>':'<span class="tag t-none">'+esc(p.feed_tier)+'</span>'}</td>
+      <td>${p.sigma_annual!==undefined?esc1(p.sigma_annual*100)+'%':'—'}</td>
+      <td class="${p.vol_plausible?'pos':'neg'}">${p.vol_plausible===undefined?'—':(p.vol_plausible?'yes':'no')}</td>
+      <td class="${p.session_ok===false?'warn':'muted'}">${p.session_ok===false?'closed':(p.session_ok?'open':'—')}</td>
+      <td class="muted">${esc(p.trend||'—')} (bias ${esc1(p.bias||0)})</td></tr>`);
+  }
+  out.push('</tbody></table>');
+  const warns = prov.flatMap(p=>(p.warnings||[]).map(w=>`${p.asset}: ${w}`));
+  if(warns.length){ out.push('<div style="margin-top:12px">'+warns.map(w=>note('w',esc(w))).join('')+'</div>'); }
+  out.push('</div>');
+  $('#liveOut').innerHTML = out.join('');
+}
+
+$('#btBtn').onclick = async () => {
+  const btn=$('#btBtn'); btn.disabled=true; btn.textContent='Running…';
+  $('#btOut').innerHTML='<div class="load">Scoring every historical bar and grading it against the gate. This takes a few seconds.</div>';
+  try{
+    const d = await api(`/api/backtest?symbol=${encodeURIComponent($('#btsym').value)}&bars=${$('#btbars').value}`);
+    if(d.error){ $('#btOut').innerHTML = note('e', esc(d.error)); return; }
+    renderBacktest(d);
+  }catch(e){ $('#btOut').innerHTML = note('e','Backtest failed: '+esc(e.message)); }
+  btn.disabled=false; btn.textContent='Run backtest';
+};
+
+function renderBacktest(d){
+  const r=d.result, b=d.baseline||{}, o=[];
+  o.push(`<div class="card"><h2>Result</h2>
+    <div class="grid g4">
+      <div class="stat"><div class="k">Gate</div><div class="v ${r.gate_passed?'pos':'neg'}">${r.gate_passed?'PASS':'FAIL'}</div>
+        <div class="n">${esc(d.strategy||'all setups')}</div></div>
+      <div class="stat"><div class="k">Win rate</div><div class="v">${fmtPct(r.win_rate)}</div>
+        <div class="n">break-even ${fmtPct(r.breakeven)}</div></div>
+      <div class="stat"><div class="k">Edge</div><div class="v ${cls(r.edge_pp)}">${fmtPP(r.edge_pp)}</div>
+        <div class="n">EV ${esc1(r.ev_pct_per_trade)}% / trade</div></div>
+      <div class="stat"><div class="k">Max drawdown</div><div class="v neg">${esc1(r.max_drawdown_pct)}%</div>
+        <div class="n">total return ${esc1(r.total_return_pct)}%</div></div>
+    </div>
+    <div class="grid g4" style="margin-top:12px">
+      <div class="stat"><div class="k">Trades</div><div class="v">${r.n_trades}</div>
+        <div class="n">${Math.round(r.effective_n)} independent after overlap</div></div>
+      <div class="stat"><div class="k">95% CI</div><div class="v" style="font-size:16px">${fmtPct(r.ci_low)} – ${fmtPct(r.ci_high)}</div>
+        <div class="n">break-even ${fmtPct(r.breakeven)}</div></div>
+      <div class="stat"><div class="k">Coin-flip baseline</div><div class="v">${b.always_call_win_rate!==undefined?fmtPct(b.always_call_win_rate):'—'}</div>
+        <div class="n">“always CALL” over the same bars</div></div>
+      <div class="stat"><div class="k">Mean setup score</div><div class="v">${esc1(d.mean_score)}</div>
+        <div class="n">${d.setups} setups in ${d.bars} bars</div></div>
+    </div></div>`);
+
+  if(b.always_call_win_rate!==undefined){
+    const skill = (r.win_rate - b.always_call_win_rate)*100;
+    o.push(note(skill>0?'ok':'w', `<b>Setup selection vs. the baseline.</b> The patterns scored
+      ${fmtPct(r.win_rate)} where a blind “always CALL” scored ${fmtPct(b.always_call_win_rate)} —
+      a <b>${fmtPP(skill)}</b> difference. The detectors do carry some directional information. It is
+      simply nowhere near the ${fmtPP((r.breakeven-r.win_rate)*100)} needed to beat the payout.`));
+  }
+  (r.gate_reason?r.gate_reason.split('; '):[]).forEach(g=>o.push(note('e',esc(g))));
+  (r.notes||[]).forEach(n=>o.push(note('',esc(n))));
+
+  if(d.equity && d.equity.length>1){
+    const vs=d.equity, ys=vs.map(p=>p.balance);
+    const lo=Math.min(...ys), hi=Math.max(...ys), W=1000, H=120;
+    const pts=vs.map((p,i)=>`${(i/(vs.length-1)*W).toFixed(1)},${(H-((p.balance-lo)/((hi-lo)||1))*H).toFixed(1)}`).join(' ');
+    o.push(`<div class="card"><h2>Equity curve</h2>
+      <svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <polyline points="${pts}" fill="none" stroke="${r.total_return_pct<0?'#ef4444':'#22c55e'}" stroke-width="1.5"/>
+      </svg>
+      <div class="kv"><span>Start</span><span>${esc1(ys[0])}</span></div>
+      <div class="kv"><span>End</span><span>${esc1(ys[ys.length-1])}</span></div></div>`);
+  }
+  if(d.setups_by_type){
+    o.push(`<div class="card"><h2>Setups detected</h2><table class="mx"><tbody>` +
+      Object.entries(d.setups_by_type).sort((a,b)=>b[1]-a[1])
+        .map(([k,v])=>`<tr><td>${esc(k)}</td><td>${v}</td></tr>`).join('') + `</tbody></table></div>`);
+  }
+  (d.warnings||[]).forEach(w=>o.push(note('w',esc(w))));
+  $('#btOut').innerHTML = o.join('');
+}
+
+$('#jBtn').onclick = async () => {
+  $('#jOut').innerHTML='<div class="load">Loading…</div>';
+  try{
+    const d = await api('/api/journal');
+    if(d.empty){ $('#jOut').innerHTML = `<div class="card"><h2>Journal</h2>`+note('w',esc(d.message))+
+      `<div class="note">Expected columns: <code>time</code>, <code>asset</code>, <code>direction</code>,
+       plus one of <code>result</code> or a signed <code>pnl</code>. Optional:
+       <code>payout</code>, <code>stake</code>, <code>setup</code>, <code>score</code>, <code>notes</code>.</div></div>`; return; }
+    renderJournal(d);
+  }catch(e){ $('#jOut').innerHTML = note('e','Journal failed: '+esc(e.message)); }
+};
+
+function renderJournal(d){
+  const o=d.overall, out=[];
+  out.push(`<div class="card"><h2>Overall</h2><div class="grid g4">
+    <div class="stat"><div class="k">Verdict</div><div class="v ${o.verdict==='PROFITABLE'?'pos':'neg'}">${esc(o.verdict)}</div>
+      <div class="n">${o.n} trades</div></div>
+    <div class="stat"><div class="k">Win rate</div><div class="v">${fmtPct(o.win_rate)}</div>
+      <div class="n">break-even ${fmtPct(o.breakeven)} at ${esc1(o.payout)}% payout</div></div>
+    <div class="stat"><div class="k">Edge</div><div class="v ${cls(o.edge_pp)}">${fmtPP(o.edge_pp)}</div>
+      <div class="n">EV ${esc1(o.ev_per_trade)}% / trade</div></div>
+    <div class="stat"><div class="k">Net P&L</div><div class="v ${cls(o.total_pnl)}">${esc1(o.total_pnl)}</div>
+      <div class="n">ROI ${esc1(o.roi)}% · maxDD ${esc1(o.max_drawdown_pct*100)}%</div></div>
+  </div>
+  <div class="grid g4" style="margin-top:12px">
+    <div class="stat"><div class="k">95% CI</div><div class="v" style="font-size:16px">${fmtPct(o.ci_low)} – ${fmtPct(o.ci_high)}</div>
+      <div class="n">p = ${esc1(o.p_value)}</div></div>
+    <div class="stat"><div class="k">Profit factor</div><div class="v">${isFinite(o.profit_factor)?esc1(o.profit_factor):'—'}</div>
+      <div class="n">wins ÷ loss value</div></div>
+    <div class="stat"><div class="k">Total staked</div><div class="v">${esc1(o.total_staked)}</div>
+      <div class="n">avg stake ${esc1(o.avg_stake)}</div></div>
+    <div class="stat"><div class="k">Wins / losses</div><div class="v">${o.wins} / ${o.losses}</div>
+      <div class="n">largest ${esc1(o.largest_win)} / ${esc1(o.largest_loss)}</div></div>
+  </div>`);
+  (o.notes||[]).forEach(n=>out.push(note('w',esc(n))));
+  out.push('</div>');
+
+  if(d.diagnosis?.length){
+    out.push('<div class="card"><h2>Behavioural diagnosis</h2>');
+    for(const f of d.diagnosis){
+      const c = f.severity==='critical'?'e':(f.severity==='info'?'':'w');
+      out.push(note(c, `<b>${esc(f.issue)}</b> — ${esc(f.evidence)}` + (f.action?`<br><span class="muted">→ ${esc(f.action)}</span>`:'')));
+    }
+    out.push('</div>');
+  }
+  const tbl=(title,rows,key)=>{
+    if(!rows?.length) return;
+    out.push(`<div class="card"><h2>${title}</h2><table><thead><tr><th>${key}</th><th>Trades</th>
+      <th>Win rate</th><th>Break-even</th><th>Edge</th><th>Net P&L</th><th>p</th></tr></thead><tbody>` +
+      rows.map(r=>`<tr><td>${esc(r[key])}</td><td>${r.n}</td><td>${fmtPct(r.win_rate)}</td>
+        <td class="muted">${fmtPct(r.breakeven)}</td><td class="${cls(r.edge_pp)}">${fmtPP(r.edge_pp)}</td>
+        <td class="${cls(r.total_pnl)}">${esc1(r.total_pnl)}</td><td>${esc1(r.p_value)}</td></tr>`).join('') +
+      '</tbody></table></div>');
+  };
+  tbl('By instrument',d.by_asset,'asset');
+  tbl('By setup',d.by_setup,'setup');
+  tbl('By payout',d.by_payout,'payout_bucket');
+  tbl('By hour (UTC)',d.by_hour,'hour_utc');
+  $('#jOut').innerHTML = out.join('');
+}
+
+$('#jfile').onchange = async (e) => {
+  const f = e.target.files[0]; if(!f) return;
+  $('#jOut').innerHTML='<div class="load">Importing…</div>';
+  try{
+    const text = await f.text();
+    const lines = text.trim().split(/\r?\n/);
+    const head = lines[0].split(',').map(s=>s.trim().replace(/^"|"$/g,''));
+    const rows = lines.slice(1).filter(Boolean).map(l=>{
+      const cells = l.split(',');
+      const o={}; head.forEach((h,i)=>o[h]=(cells[i]??'').trim().replace(/^"|"$/g,'')); return o;
+    });
+    const r = await fetch('/api/journal/import',{method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify(rows)});
+    if(!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    $('#jOut').innerHTML = note('ok',`Imported ${j.imported} trades. Journal now holds ${j.total}.`) +
+      '<div id="jAfter"></div>';
+    const d = await api('/api/journal'); if(!d.empty) renderJournal(d);
+  }catch(err){ $('#jOut').innerHTML = note('e','Import failed: '+esc(err.message)); }
+};
+
+(function init(){
+  note('', '');
+  const m=[
+    ['Payout','the platform pays <code>stake × payout</code> on a win, and takes the stake on a loss'],
+    ['Break-even','<code>1 / (1 + payout)</code> → <b>52.08%</b> at 92%'],
+    ['Expected value','<code>wr × payout − (1 − wr)</code> → 50% WR = <b>−4.00%</b>, 55% = <b>+5.60%</b>, 57% = <b>+9.44%</b>'],
+    ['Significance','one-sided z-test against break-even, plus a Wilson interval on the win rate'],
+    ['Overlap','signals on the same bar share an outcome, so raw trade counts overstate evidence; the effective sample is deflated'],
+    ['Kill zone','no signals outside the London/NY overlap — FX OTC is dead elsewhere'],
+    ['Sizing','quarter-Kelly, capped at 2% of bankroll, 5% daily loss limit, stop after 3 losses'],
+  ];
+  $('#math').innerHTML = m.map(([k,v])=>`<div class="kv"><span>${k}</span><span>${v}</span></div>`).join('');
+  api('/api/assets').then(d=>{
+    const opts = d.assets.filter(a=>a.otc).map(a=>`<option>${esc(a.symbol)}</option>`).join('');
+    $('#btsym').innerHTML = opts;
+  }).catch(()=>{ $('#btsym').innerHTML='<option>EUR/USD OTC</option>'; });
+})();
+</script>
+</body>
+</html>

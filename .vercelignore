@@ -1,0 +1,13 @@
+vendor/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+install.log
+exports/
+data/cache/
+data/journal/
+data/decisions/
+tests/
+scripts/
+.git/
