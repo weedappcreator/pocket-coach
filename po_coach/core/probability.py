@@ -43,13 +43,16 @@ def payout_fraction(payout: float) -> float:
 
 
 def _phi(x: float) -> float:
+    """Standard normal CDF.
+
+    Deliberately stdlib-only. This was the module's sole use of scipy.special,
+    and scipy is a 34 MB wheel that made the serverless bundle exceed the
+    runtime's disk budget. There is also an unused `_phi_arr` array variant that
+    was the only reason the dependency existed at all -- it has been removed
+    rather than reimplemented. Adding numpy to the maths layer is not worth a
+    34 MB dependency for a function `math.erf` already provides.
+    """
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
-
-
-def _phi_arr(x: np.ndarray) -> np.ndarray:
-    from scipy.special import ndtr
-
-    return ndtr(x)
 
 
 BARS_PER_YEAR = {
