@@ -181,6 +181,22 @@ const esc = s => String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>'
 const cls = v => v>0?'pos':v<0?'neg':'muted';
 const esc1 = n => parseFloat(n).toFixed(1);
 
+/* Risk and scoring both enforce the same constraints, so a single veto reaches
+   the UI phrased twice -- "Score 41 below the 80 threshold" alongside "Score 41
+   is below the 80 delivery threshold". Same numbers, same fact, twice. Collapse
+   by numeric signature and keep the more explanatory phrasing. */
+const dedupeReasons = (rs) => {
+  const sig = t => (String(t).match(/-?\d+(?:\.\d+)?/g) || []).map(Number).sort((a,b)=>a-b).join(',');
+  const best = new Map();
+  for (const r of (rs || [])) {
+    const k = sig(r);
+    if (!k) continue;
+    const prev = best.get(k);
+    if (!prev || r.length > prev.length) best.set(k, r);
+  }
+  return [...best.values()];
+};
+
 $$('nav button').forEach(b=>b.onclick=()=>{
   $$('nav button').forEach(x=>x.setAttribute('aria-selected', x===b));
   $$('section').forEach(s=>s.classList.add('hidden'));
@@ -252,8 +268,9 @@ function renderLive(d){
         <td>${p===undefined?'—':fmtPct(p)}</td>
         <td class="${ed===undefined?'muted':cls(ed)}">${ed===undefined?'—':fmtPP(ed)}</td>
         <td><span class="tag ${t}">${esc(v.value)}</span></td></tr>`);
-      if(v.reasons?.length){
-        out.push(`<tr><td colspan="7" class="why">${v.reasons.map(esc).join(' &nbsp;·&nbsp; ')}</td></tr>`);
+      const why = dedupeReasons(v.reasons);
+      if(why.length){
+        out.push(`<tr><td colspan="7" class="why">${why.map(esc).join(' &nbsp;·&nbsp; ')}</td></tr>`);
       }
     }
     out.push('</tbody></table></div>');
