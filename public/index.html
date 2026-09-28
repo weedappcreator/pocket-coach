@@ -419,10 +419,16 @@ $('#jfile').onchange = async (e) => {
       headers:{'Content-Type':'application/json'}, body:JSON.stringify(rows)});
     if(!r.ok) throw new Error(await r.text());
     const j = await r.json();
-    $('#jOut').innerHTML = note('ok',`Imported ${j.imported} trades. Journal now holds ${j.total}.`) +
-      '<div id="jAfter"></div>';
+    $('#jOut').innerHTML = note('ok',
+      `Imported ${j.imported} trade(s): ${j.added} new, ` +
+      `${j.duplicates_skipped} already in the journal. Journal now holds ${j.total}.`);
     const d = await api('/api/journal'); if(!d.empty) renderJournal(d);
-  }catch(err){ $('#jOut').innerHTML = note('e','Import failed: '+esc(err.message)); }
+  }catch(err){
+    const msg = String(err.message||'');
+    const readOnly = /could not save|read-only/i.test(msg);
+    $('#jOut').innerHTML = note('e',
+      (readOnly ? 'This deployment cannot save trades: ' : 'Import failed: ') + esc(msg));
+  }
 };
 
 (function init(){

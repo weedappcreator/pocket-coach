@@ -29,6 +29,19 @@ import pandas as pd
 from .payoff import break_even_win_rate, ev_pct
 
 
+def payout_fraction(payout: float) -> float:
+    """Normalise a payout to the decimal fraction the maths layer expects.
+
+    Every public entry point in this project speaks the platform's language --
+    "92% payout" -- because that is what the trader and the UI both use. The
+    functions in `payoff` speak decimals (0.92). Having both conventions live
+    side by side without a single conversion point is how a 92% payout silently
+    became a break-even above 1.0, so the conversion is now explicit, named,
+    and done in exactly one place per public function.
+    """
+    return float(payout) / 100.0
+
+
 def _phi(x: float) -> float:
     return 0.5 * (1.0 + math.erf(x / math.sqrt(2.0)))
 
@@ -157,6 +170,9 @@ def estimate_edge(
 ) -> EdgeEstimate:
     """Full edge evaluation for one trade.
 
+    `payout` is a percentage (92 for 92%), matching every other public entry
+    point here. It is converted to a decimal fraction internally.
+
     `technical_bias` in -1..+1 is the net directional opinion from the scoring
     model. It is converted into a *tiny* drift adjustment on purpose: over a
     1-5 minute horizon, a real directional edge is worth a fraction of a
@@ -168,7 +184,8 @@ def estimate_edge(
     """
     k = spot if strike is None else float(strike)
     t_years = bars_to_years(expiry_bars, timeframe)
-    be = break_even_win_rate(payout)
+    payout_frac = payout_fraction(payout)
+    be = break_even_win_rate(payout_frac)
 
     p_market = expiry_probability(spot, k, sigma_annual, t_years, 0.0)
 
@@ -182,8 +199,8 @@ def estimate_edge(
 
     edge_m = (p_market - be) * 100.0
     edge_t = (p_technical - be) * 100.0
-    ev_m = ev_pct(payout, p_market)
-    ev_t = ev_pct(payout, p_technical)
+    ev_m = ev_pct(payout_frac, p_market)
+    ev_t = ev_pct(payout_frac, p_technical)
 
     notes = []
     if abs(technical_bias) < 0.15:
@@ -334,11 +351,13 @@ def required_bias_for_payout(
 ) -> Optional[float]:
     """Smallest directional bias that clears the payout's break-even.
 
+    `payout` is a percentage (92 for 92%).
+
     If the answer is near 1.0, the trade needs a call you do not have, and the
     correct action is to skip it. This is the single most useful output of the
     module for a 1-5 minute trader.
     """
-    target = break_even_win_rate(payout) + min_edge_pp / 100.0
+    target = break_even_win_rate(payout_fraction(payout)) + min_edge_pp / 100.0
     ladder = probability_ladder(spot, payout, sigma_annual, expiry_bars, timeframe, direction)
     ok = ladder[ladder["p_win"] >= target]
     if len(ok) == 0:

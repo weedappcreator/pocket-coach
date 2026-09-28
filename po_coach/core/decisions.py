@@ -20,6 +20,14 @@ reasoning or the outcome was wrong.
 Storage is append-only JSON Lines. Append-only matters: a ledger that can be
 silently rewritten cannot be trusted to review itself, and a corrupted line is
 skipped rather than fatal.
+
+That storage is **ephemeral by default**. A serverless bundle mounts the project
+read-only, so every write path here is guarded. When the ledger cannot be
+persisted, decisions fall back to a process-local buffer and
+:func:`persistence` reports ``False`` so the API can tell the user their history
+is not being kept. The alternative -- crashing the scan, or silently pretending
+to have saved -- is worse than both, because the trader would then trust a
+recommendation record that does not exist.
 """
 from __future__ import annotations
 
@@ -46,6 +54,27 @@ EXPIRED = "EXPIRED"
 # unresolvable suggestion is a sign the scanner asked for something the risk
 # engine was never going to allow.
 DEFAULT_TTL_S = 900.0  # 15 minutes covers a 5-minute expiry plus slippage
+
+# Decisions recorded while the ledger file is unwritable. Scoped to the process,
+# so on serverless this lasts exactly as long as the warm container.
+_EPHEMERAL: List["Decision"] = []
+_PERSISTENT: Optional[bool] = None
+
+
+def persistence(path: Optional[Path] = None) -> bool:
+    """True when decisions are actually reaching disk, not just memory."""
+    global _PERSISTENT
+    if _PERSISTENT is not None:
+        return _PERSISTENT
+    p = Path(path) if path else LEDGER_PATH
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a"):
+            pass
+        _PERSISTENT = True
+    except OSError:
+        _PERSISTENT = False
+    return _PERSISTENT
 
 
 @dataclass
@@ -95,7 +124,6 @@ def record(
 ) -> Decision:
     """Write a decision to the ledger immediately, before any outcome exists."""
     p = Path(path) if path else LEDGER_PATH
-    p.parent.mkdir(parents=True, exist_ok=True)
     ts = time.time()
     d = Decision(
         ts=ts,
@@ -111,18 +139,34 @@ def record(
         decision_id=_next_id(ts, asset),
         status=PENDING,
     )
-    with p.open("a") as fh:
-        fh.write(d.to_json() + "\n")
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a") as fh:
+            fh.write(d.to_json() + "\n")
+    except OSError:
+        # Read-only bundle. Keep the decision where the API can still show it,
+        # and remember that this instance is not persisting anything.
+        global _PERSISTENT
+        _PERSISTENT = False
+        _EPHEMERAL.append(d)
     return d
 
 
 def load(path: Optional[Path] = None) -> List[Decision]:
-    """Read the ledger. A truncated final line is skipped, not fatal."""
+    """Read the ledger, plus anything recorded while disk was unavailable.
+
+    A truncated final line is skipped, not fatal, and an unreadable file yields
+    only the in-memory decisions rather than raising.
+    """
     p = Path(path) if path else LEDGER_PATH
     if not p.exists():
-        return []
+        return list(_EPHEMERAL)
     out: List[Decision] = []
-    for line in p.read_text().splitlines():
+    try:
+        text = p.read_text()
+    except OSError:
+        return list(_EPHEMERAL)
+    for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -130,6 +174,8 @@ def load(path: Optional[Path] = None) -> List[Decision]:
             out.append(Decision.from_dict(json.loads(line)))
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
+    known = {d.decision_id for d in out}
+    out.extend(d for d in _EPHEMERAL if d.decision_id not in known)
     return out
 
 
@@ -138,16 +184,34 @@ def _atomic_write(decisions: List[Decision], p: Path) -> None:
 
     Resolution rewrites the whole file, so a crash mid-write would otherwise
     destroy the entire ledger -- the one artefact whose loss is unrecoverable.
+
+    Every step is inside the guard on purpose. `tempfile.mkstemp` raising
+    `PermissionError` on a read-only bundle is an ``OSError`` like any other,
+    and an unguarded call to it turned a sweep into a 500.
     """
-    fd, tmp = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
+    tmp: Optional[str] = None
     try:
+        fd, tmp = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
         with os.fdopen(fd, "w") as fh:
             for d in decisions:
                 fh.write(d.to_json() + "\n")
         os.replace(tmp, p)
+    except OSError:
+        # Nothing changed on disk; keep the buffer so the decision is still
+        # visible, and let the caller carry on with a degraded ledger.
+        global _PERSISTENT
+        _PERSISTENT = False
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
     except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
+        if tmp and os.path.exists(tmp):
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
         raise
 
 
@@ -223,6 +287,7 @@ def review(path: Optional[Path] = None) -> Dict[str, object]:
     missed = [d for d in tradeable if d.outcome == "expired"]
 
     return {
+        "persistent": persistence(path),
         "total": len(decisions),
         "tradeable_signals": len(tradeable),
         "blocked": len(blocked),

@@ -396,6 +396,13 @@ def diagnose(df: pd.DataFrame) -> List[dict]:
 
 
 def to_csv(df: pd.DataFrame, path: Optional[Path] = None) -> Path:
+    """Write the journal to disk.
+
+    Raises ``OSError`` when the destination is not writable (a serverless
+    bundle is read-only). Callers that cannot persist must say so rather than
+    report a successful import -- an import the user cannot retrieve is data
+    they believe they saved and did not.
+    """
     p = Path(path) if path else JOURNAL_DIR / "trades.csv"
     p.parent.mkdir(parents=True, exist_ok=True)
     cols = [c for c in CANONICAL if c in df.columns]

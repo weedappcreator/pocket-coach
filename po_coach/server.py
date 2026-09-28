@@ -36,7 +36,7 @@ from .data import assets as assets_mod
 from .data import feed as feed_mod
 
 ROOT = Path(__file__).resolve().parents[1]
-WEB = ROOT / "web"
+WEB = ROOT / "public" if (ROOT / "public").exists() else ROOT / "web"
 JOURNAL_CSV = ROOT / "data" / "journal" / "trades.csv"
 
 app = FastAPI(title="Pocket Coach", version="1.0")
@@ -92,6 +92,7 @@ def scan(
     period: str = Query("5d"),
     force_killzone: bool = Query(False, description="ignore the session filter (demo)"),
     refresh: bool = Query(False),
+    debug: bool = Query(False, description="return the traceback instead of a 500"),
 ) -> dict:
     o = orch()
     if force_killzone:
@@ -111,7 +112,27 @@ def scan(
     key = f"scan:{syms}:{period}:{force_killzone}"
     if refresh:
         _CACHE.pop(key, None)
-    return cached(key, _CACHE_TTL, produce)
+    try:
+        return cached(key, _CACHE_TTL, produce)
+    except Exception as exc:
+        # A bare 500 on a serverless function is close to useless: the stack
+        # goes to a log stream nobody is watching. Surface it instead.
+        if debug:
+            import traceback
+
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "error": f"{type(exc).__name__}: {exc}",
+                    "traceback": traceback.format_exc().splitlines()[-25:],
+                    "root": str(ROOT),
+                    "snapshot_dir_exists": (ROOT / "data" / "snapshot").exists(),
+                    "files_here": sorted(p.name for p in ROOT.iterdir())[:40]
+                    if ROOT.exists()
+                    else None,
+                },
+            )
+        raise
 
 
 @app.get("/api/ledger")
@@ -138,7 +159,12 @@ class TradeIn(BaseModel):
 
 @app.post("/api/journal/import")
 def import_journal(rows: List[TradeIn]) -> dict:
-    """Accept a pasted CSV or manual entries and fold them into the journal."""
+    """Accept manual entries or a pasted CSV and fold them into the journal.
+
+    Duplicate counting is derived, not guessed: rows already present are the
+    difference between what arrived and what the merged frame actually gained.
+    The previous arithmetic reported 375 "duplicates" for a 3-row import.
+    """
     if not rows:
         raise HTTPException(400, "no rows supplied")
     df = pd.DataFrame([r.dict(exclude_none=True) for r in rows])
@@ -148,9 +174,26 @@ def import_journal(rows: List[TradeIn]) -> dict:
         raise HTTPException(422, str(exc))
     existing = journal_mod.from_csv(JOURNAL_CSV)
     merged = journal_mod.add_trades(existing, new)
-    journal_mod.to_csv(merged)
+    added = len(merged) - len(existing)
+    try:
+        journal_mod.to_csv(merged)
+    except OSError as exc:
+        # The rows parsed fine; there is simply nowhere to put them. Say that
+        # plainly instead of returning a success the user cannot retrieve.
+        raise HTTPException(
+            503,
+            f"Parsed {len(new)} row(s) but could not save the journal: {exc}. "
+            "This deployment has a read-only filesystem, so trades cannot be "
+            "persisted here. Run locally (./run.sh) or import the CSV directly "
+            "into data/journal/trades.csv.",
+        )
     _CACHE.pop("journal", None)
-    return {"imported": len(new), "total": len(merged), "skipped_duplicates": len(merged) - len(existing) - len(new) + len(existing)}
+    return {
+        "imported": len(new),
+        "added": added,
+        "duplicates_skipped": len(new) - added,
+        "total": len(merged),
+    }
 
 
 @app.get("/api/journal")

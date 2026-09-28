@@ -297,8 +297,8 @@ def score_setup(
     warnings: List[str] = []
 
     # `payout` arrives in PERCENT (92 == 92%, matching the platform UI and
-    # ScoringConfig/Filters thresholds). The probability maths wants a fraction.
-    payout_fraction = payout / 100.0
+    # ScoringConfig/Filters thresholds). estimate_edge now takes a percent too,
+    # so it converts internally -- see probability.payout_fraction.
 
     components: List[ScoreComponent] = []
 
@@ -340,7 +340,7 @@ def score_setup(
 
     edge = estimate_edge(
         spot=price,
-        payout=payout_fraction,
+        payout=payout,
         direction=direction,
         sigma_annual=sigma_annual,
         expiry_bars=expiry_bars,

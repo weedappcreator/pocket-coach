@@ -116,7 +116,17 @@ def _read_cache(symbol: str, timeframe: str, max_age_s: float) -> tuple:
 
 
 def _write_cache(symbol: str, timeframe: str, df: pd.DataFrame, source: str) -> None:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    """Best-effort disk cache. Never raises.
+
+    The whole point of a cache is that losing it is survivable, so every step is
+    guarded -- including the ``mkdir``. An unguarded ``mkdir`` here is what
+    turned a read-only serverless filesystem into a 500 on every scan, which is
+    precisely the failure this function exists to prevent.
+    """
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return
     pq, meta = _cache_paths(symbol, timeframe)
     # Parquet is preferred but pyarrow/fastparquet are optional extras. Without
     # one, to_parquet raises and -- worse -- used to fail silently here, so the
