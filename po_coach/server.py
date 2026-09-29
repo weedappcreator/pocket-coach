@@ -95,19 +95,29 @@ def scan(
     refresh: bool = Query(False),
     debug: bool = Query(False, description="return the traceback instead of a 500"),
 ) -> dict:
-    o = orch()
-    if force_killzone:
-        o.strategy.raw.setdefault("markets", {})["killzone_only"] = False
     syms = [s.strip() for s in assets.split(",")] if assets else None
 
     def produce() -> dict:
-        report = o.scan(syms, period=period, write_ledger=True)
+        # `orch()` is a module-level singleton. Mutating its strategy to honour
+        # force_killzone made the override PERMANENT: one demo request turned off
+        # the session filter for every later request served by the same warm
+        # function. Pass the override per-scan instead, and restore it after.
+        o = orch()
+        markets = o.strategy.raw.setdefault("markets", {})
+        previous = markets.get("killzone_only", True)
+        if force_killzone:
+            markets["killzone_only"] = False
+        try:
+            report = o.scan(syms, period=period, write_ledger=True)
+        finally:
+            markets["killzone_only"] = previous
         try:
             ledger.sweep_stale()
         except OSError:
             pass
         d = report.to_dict()
         d["force_killzone"] = force_killzone
+        d["session_filter_active"] = not force_killzone
         return d
 
     key = f"scan:{syms}:{period}:{force_killzone}"

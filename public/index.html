@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pocket Coach — risk-gated decision support</title>
 <style>
+  /* Progress affordance for the live feed. Painted on <body> so it never
+     disables the Start/Stop toggle -- that button must stay clickable so a
+     slow scan can be interrupted. */
+  body.scanning #tBtn::after{
+    content:''; display:inline-block; width:7px; height:7px; margin-left:8px;
+    border-radius:50%; background:var(--accent); vertical-align:middle;
+    animation:pulse 1s ease-in-out infinite;
+  }
+  @keyframes pulse{ 0%,100%{opacity:.25} 50%{opacity:1} }
+  @media (prefers-reduced-motion:reduce){
+    body.scanning #tBtn::after{ animation:none; opacity:.7 }
+  }
+
   :root{
     --bg:#0b0e14; --panel:#12161f; --panel2:#171c27; --line:#232a38;
     --ink:#e6ebf5; --muted:#8b97ad; --dim:#5d6a80;
@@ -164,6 +177,7 @@
       <label class="muted" for="tperiod">Chart window</label>
       <select id="tperiod"><option selected>5d</option><option>1mo</option></select>
       <span class="pill" id="tSession">—</span>
+      <span class="muted" id="tClock"></span>
       <span class="muted" id="tMeta"></span>
     </div>
     <div id="tOut"><div class="load">The terminal refreshes the scan and the chart every 30 seconds.
@@ -475,10 +489,18 @@ function renderChart(bars){
       aria-label="Recent ${n} candles">${grid}${lvl}${body}${lab}</svg></div>`;
 }
 
-let tTimer=null, tState={bars:[],scan:null,sym:null,sel:null};
+let tTimer=null, tState={bars:[],scan:null,sym:null,sel:null,busy:false};
 
 async function tickTerminal(){
   if(!tState.sym) return;
+  // A scan can outlast the 30s refresh on a cold function. Without this guard a
+  // slow tick queues the next one, and they stack up until the tab is unusable.
+  if(tState.busy) return;
+  tState.busy=true;
+  // Deliberately NOT disabling #tBtn: that button is also the Stop toggle, so
+  // locking it would make a slow scan impossible to interrupt. The busy guard
+  // above is what prevents overlap; this only paints a progress state.
+  document.body.classList.add('scanning');
   const t0=performance.now();
   try{
     const sym=encodeURIComponent(tState.sym);
@@ -497,6 +519,9 @@ async function tickTerminal(){
   }catch(e){
     $('#tMeta').textContent='refresh failed: '+e.message;
     $('#tOut').insertAdjacentHTML('afterbegin', note('e','Live refresh failed: '+esc(e.message)));
+  }finally{
+    tState.busy=false;
+    document.body.classList.remove('scanning');
   }
   updateClock();
 }
@@ -608,14 +633,19 @@ function updateClock(){
   if(c) c.textContent=`${hh}:${mm}:${ss} UTC`;
 }
 
+// The clock runs on its own interval for the life of the page. It used to be
+// created inside the Start handler, so each stop/start pair leaked another
+// 1s interval and the seconds field raced itself once you had clicked a few
+// times. One interval, started once, always running.
+updateClock();
+setInterval(updateClock,1000);
+
 $('#tBtn').onclick = () => {
   if(tTimer){ clearInterval(tTimer); tTimer=null; $('#tBtn').textContent='Start live feed'; return; }
   $('#tBtn').textContent='Stop live feed';
   tState.sym=$('#tsym').value;
   tickTerminal();
   tTimer=setInterval(tickTerminal,30000);
-  updateClock();
-  setInterval(updateClock,1000);
 };
 $('#tsym').onchange = () => { tState.sym=$('#tsym').value; tState.sel=null; if(tTimer) tickTerminal(); };
 $('#tperiod').onchange = () => { if(tTimer) tickTerminal(); };
