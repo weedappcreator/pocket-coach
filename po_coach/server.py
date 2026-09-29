@@ -28,6 +28,7 @@ from .agent import Orchestrator, Strategy
 from .core import decisions as ledger
 from .core import journal as journal_mod
 from .core import backtest as backtest_mod
+from .core import payout_sensitivity as payout_mod
 from .core import scoring as scoring_mod
 from .core.indicators import compute_features
 from .core.patterns import scan as pattern_scan
@@ -278,6 +279,24 @@ def backtest(
         )
         base = backtest_mod.baseline_check(feats, expiry_bars=expiry, payout=payout)
 
+        # Folded into the backtest response rather than exposed as a second
+        # endpoint. A standalone route would re-run the whole pipeline for one
+        # number, and the panel is only meaningful next to the win rate that
+        # produced it -- the two must never come from different runs.
+        sens = payout_mod.analyse_payout_sensitivity(
+            win_rate=result.win_rate,
+            n_trades=result.n_trades,
+            effective_n=result.effective_n,
+            ci_low=result.ci_low,
+            ci_high=result.ci_high,
+            # `assets.payout_for` returns a PERCENT (92.0); the sensitivity maths
+            # is in fractions. `break_even_win_rate` raises on a percentage, which
+            # is how this mismatch gets caught instead of silently returning a
+            # 1% break-even.
+            current_payout=payout / 100.0,
+            target_wr=min_win_rate,
+        )
+
         curve = equity.reset_index()
         curve.columns = ["time", "balance"]
         return {
@@ -290,6 +309,7 @@ def backtest(
             "payout": payout,
             "result": result.to_dict(),
             "baseline": base,
+            "payout_sensitivity": sens.to_dict(),
             "equity": [
                 {"time": str(t), "balance": float(b)}
                 for t, b in curve.itertuples(index=False)

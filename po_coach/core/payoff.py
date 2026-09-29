@@ -20,6 +20,12 @@ import math
 from dataclasses import dataclass, asdict
 from typing import Optional, Sequence, Tuple
 
+# Highest payout fraction we treat as real. Crypto and CFD brands quote up to
+# ~300%; nothing reaches 1000%. This also separates plausible fractions from
+# percentages passed unconverted (92.0), which is what `break_even_win_rate`
+# uses to reject unit mistakes.
+_MAX_PLAUSIBLE_PAYOUT = 10.0
+
 try:
     from statistics import NormalDist
 
@@ -60,17 +66,23 @@ except Exception:  # pragma: no cover
 def break_even_win_rate(payout: float) -> float:
     """Win rate needed to hold the bankroll flat at a given payout.
 
-    `payout` is a DECIMAL FRACTION: 0.92 means an 92% payout.
+    `payout` is a DECIMAL FRACTION: 0.92 means a 92% payout.
 
     The guard below is not decoration. Passing a percentage (92) instead of a
     fraction (0.92) silently yields a break-even of 1.07% instead of 52.08%,
     which turns every risk check into a no-op and every edge estimate into
     nonsense. That bug shipped three times while this module was being written,
     so it is now a hard error.
+
+    The threshold is deliberately NOT ``> 1.0``. Payouts above 100% are real --
+    crypto and CFD brands quote 150-300% -- and ``1.5`` is a legitimate 150%
+    payout, not a mistyped percentage. The only unambiguous tell is a value big
+    enough that no platform would ever quote it as a fraction, so the cut sits
+    far above any real payout and well below any real percentage.
     """
     if payout <= 0:
         raise ValueError("payout must be > 0")
-    if payout > 1.0:
+    if payout > _MAX_PLAUSIBLE_PAYOUT:
         raise ValueError(
             "payout looks like a percentage (%.4f). This function takes a decimal "
             "fraction, e.g. 0.92 for 92%%. Use `payout / 100.0` at the boundary "

@@ -306,6 +306,59 @@ $('#btBtn').onclick = async () => {
   btn.disabled=false; btn.textContent='Run backtest';
 };
 
+/* Payout sensitivity: the same measured win rate graded against every payout a
+   trader might actually be offered. This exists because "FAIL at 92%" is a dead
+   end for the reader -- the payout is the one parameter they can change by
+   shopping between venues, so the useful question is where this edge turns
+   positive, not whether it works at one price.
+
+   Two rows are deliberately distinguished: `profitable` is positive at the
+   measured rate, `profitable_across_ci` is positive across the whole confidence
+   interval. Rendering them identically would let a sample-size artefact look
+   like a finding. */
+function renderPayoutSensitivity(s, currentPayout, r){
+  const o=[];
+  const be = s.breakeven_payout_pct;
+  const isCurrent = p => currentPayout!==undefined && Math.abs(p-currentPayout)<0.5;
+
+  o.push(`<div class="card"><h2>Payout sensitivity</h2>
+    <p class="muted" style="margin:0 0 12px">The win rate is fixed at ${fmtPct(s.win_rate)}.
+      Only the price of the contract changes below.</p>
+    <div class="grid g4">
+      <div class="stat"><div class="k">Breaks even above</div>
+        <div class="v ${be<=currentPayout?'neg':'pos'}">${be.toFixed(0)}% payout</div>
+        <div class="n">${be<=currentPayout?'worse than the quoted payout':'better than the quoted payout'}</div></div>
+      <div class="stat"><div class="k">Quoted payout</div>
+        <div class="v">${currentPayout!==undefined?currentPayout.toFixed(0)+'%':'—'}</div>
+        <div class="n">needs ${fmtPct(r.breakeven)} win rate</div></div>
+      <div class="stat"><div class="k">95% range</div>
+        <div class="v" style="font-size:16px">${s.breakeven_payout_ci_low.toFixed(0)}%–${s.breakeven_payout_ci_high.toFixed(0)}%</div>
+        <div class="n">break-even payout across the interval</div></div>
+      <div class="stat"><div class="k">Below coin flip</div>
+        <div class="v ${s.below_random?'warn':'pos'}">${s.below_random?'YES':'no'}</div>
+        <div class="n">${s.below_random?'worse than random at the same price':'beats random'}</div></div>
+    </div>
+    <table class="mx" style="margin-top:14px">
+      <thead><tr><th>Payout</th><th>Break-even WR</th><th>EV / trade</th>
+        <th>Margin</th><th>Across 95% CI</th></tr></thead><tbody>` +
+    s.tiers.map(t=>{
+      const here = isCurrent(t.payout_pct);
+      return `<tr${here?' style="background:#141c2b"':''}>
+        <td>${t.payout_pct.toFixed(0)}%${here?' <span class="muted">(quoted)</span>':''}</td>
+        <td>${fmtPct(t.breakeven)}</td>
+        <td class="${cls(t.ev_pct_per_trade)}">${(t.ev_pct_per_trade>0?'+':'')+t.ev_pct_per_trade.toFixed(2)}%</td>
+        <td class="${cls(t.margin_pp)}">${fmtPP(t.margin_pp)}</td>
+        <td class="${t.profitable_across_ci?'pos':t.profitable?'warn':'muted'}">${
+          t.profitable_across_ci?'solid':t.profitable?'point estimate only':'—'}</td></tr>`;
+    }).join('') + `</tbody></table>
+    <p class="muted" style="margin:10px 0 0;font-size:12px">“Point estimate only” means the tier
+      is profitable at the measured win rate but the confidence interval still crosses
+      break-even, so the result is not yet safe to bet on.</p></div>`);
+
+  (s.notes||[]).forEach(n=>o.push(note(s.below_random?'w':'',esc(n))));
+  return o.join('');
+}
+
 function renderBacktest(d){
   const r=d.result, b=d.baseline||{}, o=[];
   o.push(`<div class="card"><h2>Result</h2>
@@ -337,6 +390,7 @@ function renderBacktest(d){
       a <b>${fmtPP(skill)}</b> difference. The detectors do carry some directional information. It is
       simply nowhere near the ${fmtPP((r.breakeven-r.win_rate)*100)} needed to beat the payout.`));
   }
+  if(d.payout_sensitivity) o.push(renderPayoutSensitivity(d.payout_sensitivity, d.payout, r));
   (r.gate_reason?r.gate_reason.split('; '):[]).forEach(g=>o.push(note('e',esc(g))));
   (r.notes||[]).forEach(n=>o.push(note('',esc(n))));
 
