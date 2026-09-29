@@ -87,14 +87,19 @@ class FeedResult:
         }
 
 
-def _cache_paths(symbol: str, timeframe: str) -> tuple:
+def _cache_paths(symbol: str, timeframe: str, period: str) -> tuple:
+    # `period` MUST be part of the key. Without it a short request (period="1d",
+    # 17 weekend bars) is served to a long one (period="3mo"), so the caller
+    # silently receives a different sample size than it asked for. That is
+    # especially dangerous for backtests, whose significance claims depend on
+    # the number of bars actually scored.
     safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in symbol)
-    stem = CACHE_DIR / f"{safe}_{timeframe}"
+    stem = CACHE_DIR / f"{safe}_{timeframe}_{period}"
     return stem.with_suffix(".parquet"), stem.with_suffix(".meta.json")
 
 
-def _read_cache(symbol: str, timeframe: str, max_age_s: float) -> tuple:
-    pq, meta = _cache_paths(symbol, timeframe)
+def _read_cache(symbol: str, timeframe: str, period: str, max_age_s: float) -> tuple:
+    pq, meta = _cache_paths(symbol, timeframe, period)
     if not meta.exists():
         return None, None
     try:
@@ -115,7 +120,7 @@ def _read_cache(symbol: str, timeframe: str, max_age_s: float) -> tuple:
     return None, info
 
 
-def _write_cache(symbol: str, timeframe: str, df: pd.DataFrame, source: str) -> None:
+def _write_cache(symbol: str, timeframe: str, period: str, df: pd.DataFrame, source: str) -> None:
     """Best-effort disk cache. Never raises.
 
     The whole point of a cache is that losing it is survivable, so every step is
@@ -127,7 +132,7 @@ def _write_cache(symbol: str, timeframe: str, df: pd.DataFrame, source: str) -> 
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
     except OSError:
         return
-    pq, meta = _cache_paths(symbol, timeframe)
+    pq, meta = _cache_paths(symbol, timeframe, period)
     # Parquet is preferred but pyarrow/fastparquet are optional extras. Without
     # one, to_parquet raises and -- worse -- used to fail silently here, so the
     # cache appeared to work while never being written. Fall back to gzipped
@@ -255,7 +260,7 @@ def fetch_public(
     """
     max_age = 120.0 if timeframe in ("1m", "2m", "5m") else 3600.0
     if not force:
-        cached, info = _read_cache(yahoo_symbol, timeframe, max_age)
+        cached, info = _read_cache(yahoo_symbol, timeframe, period, max_age)
         if cached is not None and not cached.empty:
             return FeedResult(
                 asset=None,
@@ -305,7 +310,7 @@ def fetch_public(
             None, None, "yahoo", FEED_UNKNOWN, time.time(),
             error=f"no rows returned for {yahoo_symbol} {timeframe} {period}",
         )
-    _write_cache(yahoo_symbol, timeframe, df, "yahoo")
+    _write_cache(yahoo_symbol, timeframe, period, df, "yahoo")
     return FeedResult(None, df, "yahoo", FEED_PUBLIC, time.time())
 
 

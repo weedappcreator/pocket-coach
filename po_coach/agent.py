@@ -41,6 +41,11 @@ from .data import feed as feed_mod
 ROOT = Path(__file__).resolve().parents[1]   # project root, not the package dir
 CONFIG_DIR = ROOT / "config"
 
+# Bars of history the live scanner analyses per instrument. Indicator warmup is
+# ~200 bars, so 600 leaves ample headroom while keeping a multi-month window fast
+# enough to poll. See `_analyse`.
+LIVE_ANALYSIS_BARS = 600
+
 _STAGES = (
     ("data", "testing-evidence-collector"),
     ("structure", "finance-financial-analyst"),
@@ -232,6 +237,19 @@ class Orchestrator:
         if df is None or len(df) < 120:
             meta["error"] = meta["error"] or f"need >=120 bars, have {0 if df is None else len(df)}"
             return None
+        # A live scan only ever reports the LATEST setup, so scoring 6,000 bars
+        # of history per instrument is pure waste: it made a 1-month live scan
+        # take 65s across 7 assets (compute_features + analyse are both O(n)),
+        # which is slower than the refresh interval it feeds. 600 bars is far
+        # more than the indicator warmup needs and keeps recent structure,
+        # which is what `detect_latest` inspects.
+        #
+        # Deliberately does NOT affect backtests: /api/backtest calls
+        # compute_features and pattern_scan itself, so its sample size is
+        # unchanged. Truncating that path would quietly shrink the evidence base
+        # behind every significance claim.
+        if len(df) > LIVE_ANALYSIS_BARS:
+            df = df.iloc[-LIVE_ANALYSIS_BARS:]
         feats = compute_features(df)
         sst = analyse(feats)
         setups = patterns.detect_latest(feats, sst.swings)

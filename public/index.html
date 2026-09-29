@@ -80,6 +80,53 @@
   details{margin-top:10px} summary{cursor:pointer;color:var(--muted);font-size:13px;padding:5px 0}
   summary:hover{color:var(--ink)}
   table.mx{font-size:12.5px} table.mx td{padding:5px 8px}
+
+  /* ---- terminal ----
+     A terminal layout, deliberately built as a monitoring console rather than an
+     order screen. There is no Buy/Sell button anywhere, and the candidate rows
+     are verdicts rather than tickets. With a 41% measured win rate against a
+     52% break-even, an order panel would be a row of disabled buttons, which
+     reads as "broken" rather than "correctly refusing". */
+  .term{display:grid;grid-template-columns:1.6fr 1fr;gap:14px;align-items:start}
+  @media(max-width:1000px){ .term{grid-template-columns:1fr} }
+  .chartbox{position:relative;background:var(--panel2);border:1px solid var(--line);
+    border-radius:8px;padding:8px}
+  .chartbox svg{display:block;width:100%;height:auto}
+  .px{position:absolute;top:8px;left:10px;font-size:19px;font-weight:600;
+    font-variant-numeric:tabular-nums;pointer-events:none}
+  .pxsub{position:absolute;top:33px;left:10px;font-size:11.5px;color:var(--muted);
+    pointer-events:none;font-variant-numeric:tabular-nums}
+  .tick{display:flex;justify-content:space-between;gap:10px;padding:7px 9px;
+    border-bottom:1px solid var(--line);font-size:13px;font-variant-numeric:tabular-nums}
+  .tick:last-child{border-bottom:none}
+  .tick .sym{font-weight:600;min-width:112px}
+  .tick .px{position:static;font-size:13px;font-weight:500}
+  .tick .pxsub{position:static;font-size:11.5px}
+  .cand{cursor:pointer;transition:background .12s}
+  .cand:hover{background:#1b2331}
+  .cand.sel{background:#1a2436;box-shadow:inset 2px 0 0 var(--accent)}
+  .pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:11.5px;
+    font-weight:600;background:#1b2331;border:1px solid var(--line);color:var(--muted)}
+  .pill.on{background:#0c1710;border-color:#1e4a2b;color:#8ee0a5}
+  .pill.off{background:#1c0f11;border-color:#4a1e1e;color:#f0a0a0}
+  .verdict{display:inline-block;padding:2px 7px;border-radius:4px;font-size:11px;
+    font-weight:700;letter-spacing:.03em}
+  .verdict.NO_TRADE{background:#1c0f11;color:#f0a0a0;border:1px solid #4a1e1e}
+  .verdict.CALL{background:#0c1710;color:#8ee0a5;border:1px solid #1e4a2b}
+  .verdict.PUT{background:#0c1710;color:#8ee0a5;border:1px solid #1e4a2b}
+  .verdict.REVIEW{background:#171307;color:#e0c99a;border:1px solid #4a3a1e}
+  .tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+    border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  @media(max-width:640px){ .tgrid{grid-template-columns:repeat(2,1fr)} }
+  .tcell{background:var(--panel2);padding:8px 10px}
+  .tcell .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim)}
+  .tcell .v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+  details.reasons{margin-top:6px}
+  details.reasons summary{cursor:pointer;font-size:12px;color:var(--accent);
+    list-style:none;user-select:none}
+  details.reasons summary::-webkit-details-marker{display:none}
+  details.reasons summary:before{content:"▸ "}
+  details.reasons[open] summary:before{content:"▾ "}
   .spark{width:100%;height:120px;display:block}
   .foot{margin-top:32px;padding-top:16px;border-top:1px solid var(--line);
     color:var(--dim);font-size:12.5px}
@@ -102,16 +149,31 @@
   </header>
 
   <nav role="tablist">
+    <button role="tab" data-tab="terminal" aria-selected="false">Terminal</button>
     <button role="tab" data-tab="live" aria-selected="true">Live scan</button>
     <button role="tab" data-tab="backtest" aria-selected="false">Backtest</button>
     <button role="tab" data-tab="journal" aria-selected="false">Journal</button>
     <button role="tab" data-tab="method" aria-selected="false">How it decides</button>
   </nav>
 
+  <section id="terminal" class="hidden">
+    <div class="row">
+      <button class="act" id="tBtn">Start live feed</button>
+      <label class="muted" for="tsym">Instrument</label>
+      <select id="tsym"></select>
+      <label class="muted" for="tperiod">Chart window</label>
+      <select id="tperiod"><option selected>5d</option><option>1mo</option></select>
+      <span class="pill" id="tSession">—</span>
+      <span class="muted" id="tMeta"></span>
+    </div>
+    <div id="tOut"><div class="load">The terminal refreshes the scan and the chart every 30 seconds.
+      It ranks setups and explains every refusal — it does not place orders.</div></div>
+  </section>
+
   <section id="live">
     <div class="row">
       <label class="muted" for="period">Window</label>
-      <select id="period"><option>5d</option><option>1mo</option><option>3mo</option></select>
+      <select id="period"><option>1d</option><option>5d</option><option>1mo</option></select>
       <label class="muted" style="display:flex;gap:6px;align-items:center">
         <input type="checkbox" id="kz"> Ignore session filter (demo)
       </label>
@@ -359,6 +421,205 @@ function renderPayoutSensitivity(s, currentPayout, r){
   return o.join('');
 }
 
+/* ============================ live terminal ============================ */
+/* Candles drawn as plain SVG. No charting library: the whole page is one file
+   with no build step, and at 120 bars a polylines-per-candle render is well
+   under a millisecond, so a dependency would buy nothing but weight. */
+function renderChart(bars){
+  if(!bars || bars.length<2) return '<div class="load">Waiting for candles…</div>';
+  const W=760, H=280, PADL=6, PADR=58, PADT=14, PADB=22;
+  const n=bars.length;
+  const hi=Math.max(...bars.map(b=>b.h)), lo=Math.min(...bars.map(b=>b.l));
+  const pad=(hi-lo)*0.08 || (hi*0.0002) || 1;
+  const top=hi+pad, bot=lo-pad;
+  const cw=(W-PADL-PADR)/n, bw=Math.max(1.5, Math.min(9, cw*0.62));
+  const X=i=>PADL+i*cw+cw/2;
+  const Y=p=>PADT+(top-p)/((top-bot)||1)*(H-PADT-PADB);
+  const iw=cw*0.26; // wick half-width
+
+  // 4 horizontal price guides
+  let grid='';
+  for(let g=1;g<=4;g++){
+    const p=bot+(top-bot)*(g/5), y=Y(p);
+    grid+=`<line x1="${PADL}" y1="${y.toFixed(1)}" x2="${W-PADR}" y2="${y.toFixed(1)}"
+      stroke="#232a38" stroke-width="1"/>
+      <text x="${W-PADR+6}" y="${(y+3.5).toFixed(1)}" fill="#5d6a80" font-size="10"
+        font-family="ui-monospace,monospace">${p.toFixed(hi>20?3:5)}</text>`;
+  }
+  const body=bars.map((b,i)=>{
+    const up=b.c>=b.o, col=up?'#22c55e':'#ef4444';
+    const x=X(i), yO=Y(b.o), yC=Y(b.c);
+    const top_=Math.min(yO,yC), hgt=Math.max(1,Math.abs(yC-yO));
+    return `<line x1="${x.toFixed(1)}" y1="${Y(b.h).toFixed(1)}" x2="${x.toFixed(1)}"
+        y2="${Y(b.l).toFixed(1)}" stroke="${col}" stroke-width="1"/>
+      <rect x="${(x-bw/2).toFixed(1)}" y="${top_.toFixed(1)}" width="${bw.toFixed(1)}"
+        height="${hgt.toFixed(1)}" fill="${col}"/>`;
+  }).join('');
+  // last close as a dashed level
+  const last=bars[n-1], ly=Y(last.c);
+  const chg=((last.c-bars[n-1-Math.min(n-1,11)].c)/bars[n-1-Math.min(n-1,11)].c)*100;
+  const lvl=`<line x1="${PADL}" y1="${ly.toFixed(1)}" x2="${W-PADR}" y2="${ly.toFixed(1)}"
+    stroke="#60a5fa" stroke-width="1" stroke-dasharray="3 3" opacity=".75"/>`;
+  // x labels: first, middle, last
+  const lab=[0,Math.floor(n/2),n-1].map(i=>{
+    const d=new Date(bars[i].t*1000);
+    const s=d.toISOString().slice(5,16).replace('T',' ');
+    return `<text x="${X(i).toFixed(1)}" y="${H-6}" fill="#5d6a80" font-size="10"
+      text-anchor="${i===0?'start':i===n-1?'end':'middle'}"
+      font-family="ui-monospace,monospace">${s}</text>`;
+  }).join('');
+  return `<div class="chartbox">
+    <div class="px" id="tPx">${last.c}</div><div class="pxsub" id="tPxSub">last close ·
+      <span class="${chg>=0?'pos':'neg'}">${chg>=0?'+':''}${chg.toFixed(2)}%</span> over 1h</div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="Recent ${n} candles">${grid}${lvl}${body}${lab}</svg></div>`;
+}
+
+let tTimer=null, tState={bars:[],scan:null,sym:null,sel:null};
+
+async function tickTerminal(){
+  if(!tState.sym) return;
+  const t0=performance.now();
+  try{
+    const sym=encodeURIComponent(tState.sym);
+    // The scan first, then the chart for the selected instrument. Both hit the
+    // same single-worker server, so firing them in parallel queues the second
+    // anyway; sequencing also means the chart arrives already cached from the
+    // scan's own fetch instead of triggering a duplicate cold Yahoo call.
+    const sd=await api(`/api/scan?force_killzone=true&period=${$('#tperiod').value}`);
+    const cd=await api(`/api/candles?symbol=${sym}&period=${$('#tperiod').value}&limit=120`);
+    tState.bars=cd.bars||[]; tState.scan=sd;
+    renderTerminal();
+    const ms=Math.round(performance.now()-t0);
+    const p=cd.provenance||{};
+    $('#tMeta').textContent=
+      `${cd.bars.length} bars · ${p.source||'?'}${p.from_cache?' (cache)':''} · scan ${sd.duration_ms||0}ms · total ${ms}ms`;
+  }catch(e){
+    $('#tMeta').textContent='refresh failed: '+e.message;
+    $('#tOut').insertAdjacentHTML('afterbegin', note('e','Live refresh failed: '+esc(e.message)));
+  }
+  updateClock();
+}
+
+function renderTerminal(){
+  const d=tState.scan, bars=tState.bars;
+  if(!d) return;
+  const out=[];
+  // --- top strip: market state + the honest headline numbers ---
+  const h=d.duration_ms||0, cands=d.candidates||[];
+  const tradeable=cands.filter(c=>c.verdict&&c.verdict.tradeable);
+  out.push(`<div class="tgrid" style="margin-bottom:14px">
+    <div class="tcell"><div class="k">Instruments</div><div class="v">${d.assets.length}</div></div>
+    <div class="tcell"><div class="k">Candidates</div><div class="v">${cands.length}</div></div>
+    <div class="tcell"><div class="k">Tradeable</div>
+      <div class="v ${tradeable.length?'pos':'neg'}">${tradeable.length}</div></div>
+    <div class="tcell"><div class="k">Scan</div><div class="v">${h}ms</div></div>
+  </div>`);
+
+  // --- chart + ranked candidate list ---
+  out.push(`<div class="term"><div>${renderChart(bars)}</div><div>`);
+
+  const ranked=[...cands].sort((a,b)=>(b.score||0)-(a.score||0));
+  if(!ranked.length){
+    out.push(`<div class="card"><h2>Ranked setups</h2>
+      ${note('w','No setups in this window. The detectors need price structure to form; an empty list is a normal result, not an error.')}</div>`);
+  } else {
+    out.push(`<div class="card"><h2>Ranked setups</h2>
+      <p class="muted" style="margin:0 0 8px;font-size:12px">Score is ranking only. A high score
+        does not clear the payout gate — read the verdict. Both directions are scored for every
+        instrument, which is why one pair can appear twice.</p>`);
+    ranked.forEach((c,i)=>{
+      const v=c.verdict||{};
+      // Keyed by instrument AND direction: the scanner deliberately scores both
+      // CALL and PUT for each asset, so two rows on one pair are two distinct
+      // calls, not a duplicate.
+      const key=c.asset+'|'+(c.direction||'');
+      const sel=tState.sel===key;
+      const ev=c.edge||{};
+      const dir=(c.direction||'').toUpperCase();
+      out.push(`<div class="cand${sel?' sel':''}" data-i="${i}" data-key="${esc(key)}">
+        <div class="tick">
+          <span class="sym">${esc(c.asset)}</span>
+          <span class="${dir==='CALL'?'pos':dir==='PUT'?'neg':'muted'}">${dir||'—'}</span>
+          <span style="flex:1"></span>
+          <span class="muted">score</span>
+          <span><b>${esc1(c.score)}</b></span>
+          <span class="verdict ${esc(v.value||'NO_TRADE')}">${esc(v.value||'NO_TRADE')}</span>
+        </div>
+        <div class="tick" style="border:none;padding-top:0">
+          <span class="muted">edge</span><span class="${cls(ev.edge_pp)}">${fmtPP(ev.edge_pp)}</span>
+          <span class="muted">payout</span><span>${esc1(ev.payout)}%</span>
+          <span class="muted">strike</span><span style="font-size:12px">${ev.strike!==undefined?esc1(ev.strike):'—'}</span>
+        </div>
+        <details class="reasons"><summary>why${(c.vetoes||[]).length?' ('+c.vetoes.length+' vetoes)':''}</summary>
+          <div style="margin:6px 0 2px">${(c.vetoes||[]).map(x=>note('e',esc(x))).join('')||note('ok','No vetoes recorded.')}</div>
+          ${(c.reasons||[]).slice(0,6).map(x=>`<div class="muted" style="font-size:11.5px">· ${esc(x)}</div>`).join('')}
+        </details>
+      </div>`);
+    });
+    out.push('</div>');
+  }
+  out.push('</div></div>');
+
+  // --- session + payout reality ---
+  const hour=new Date().getUTCHours();
+  const kz=hour>=7&&hour<=21;
+  $('#tSession').className='pill '+(kz?'on':'off');
+  $('#tSession').textContent=kz?'London/NY window open':'Outside session';
+  out.push(`<div class="card" style="margin-top:14px"><h2>What the payout is really costing</h2>
+    ${note('w',`<b>OTC is not the 92% headline.</b> Pocket Option quotes up to 92% on standard
+      forex and up to 218% on select assets, but OTC pairs — the ones tradable at
+      weekends — typically pay <b>60–85%</b> because the price is generated, not
+      exchanged. At 60% the break-even win rate is <b>62.5%</b>, not 52%. Read the payout
+      on the exact contract before you click; it changes without notice.`)}
+    ${note('',`This terminal prices every candidate at the payout the platform shows for it,
+      so a low-payout asset is rejected earlier, not later. That is the correct
+      behaviour: at a 60% payout the same setup is a much worse bet.`)}</div>`);
+
+  (d.warnings||[]).forEach(w=>out.push(note('w',esc(w))));
+  $('#tOut').innerHTML=out.join('');
+
+  // wire click-to-inspect on candidates
+  $$('#tOut .cand').forEach(el=>{
+    el.onclick=ev=>{
+      if(ev.target.closest('details')) return;
+      const key=el.dataset.key;
+      tState.sel=(tState.sel===key)?null:key;
+      tState.sym=ranked[+el.dataset.i].asset; $('#tsym').value=tState.sym;
+      renderTerminal(); loadChartOnly();
+    };
+  });
+}
+
+async function loadChartOnly(){
+  const sym=encodeURIComponent(tState.sym);
+  try{
+    const cd=await api(`/api/candles?symbol=${sym}&period=${$('#tperiod').value}&limit=120`);
+    tState.bars=cd.bars||[]; renderTerminal();
+  }catch(e){/* the 30s loop reports failures; don't spam here */}
+}
+
+function updateClock(){
+  const d=new Date();
+  const hh=String(d.getUTCHours()).padStart(2,'0');
+  const mm=String(d.getUTCMinutes()).padStart(2,'0');
+  const ss=String(d.getUTCSeconds()).padStart(2,'0');
+  const c=$('#tClock');
+  if(c) c.textContent=`${hh}:${mm}:${ss} UTC`;
+}
+
+$('#tBtn').onclick = () => {
+  if(tTimer){ clearInterval(tTimer); tTimer=null; $('#tBtn').textContent='Start live feed'; return; }
+  $('#tBtn').textContent='Stop live feed';
+  tState.sym=$('#tsym').value;
+  tickTerminal();
+  tTimer=setInterval(tickTerminal,30000);
+  updateClock();
+  setInterval(updateClock,1000);
+};
+$('#tsym').onchange = () => { tState.sym=$('#tsym').value; tState.sel=null; if(tTimer) tickTerminal(); };
+$('#tperiod').onchange = () => { if(tTimer) tickTerminal(); };
+
 function renderBacktest(d){
   const r=d.result, b=d.baseline||{}, o=[];
   o.push(`<div class="card"><h2>Result</h2>
@@ -517,7 +778,11 @@ $('#jfile').onchange = async (e) => {
   api('/api/assets').then(d=>{
     const opts = d.assets.filter(a=>a.otc).map(a=>`<option>${esc(a.symbol)}</option>`).join('');
     $('#btsym').innerHTML = opts;
-  }).catch(()=>{ $('#btsym').innerHTML='<option>EUR/USD OTC</option>'; });
+    $('#tsym').innerHTML = opts;
+  }).catch(()=>{
+    $('#btsym').innerHTML='<option>EUR/USD OTC</option>';
+    $('#tsym').innerHTML='<option>EUR/USD OTC</option>';
+  });
 })();
 </script>
 </body>

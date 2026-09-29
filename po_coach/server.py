@@ -320,6 +320,57 @@ def backtest(
     return cached(f"bt:{symbol}:{period}:{bars}", 300.0, produce)
 
 
+@app.get("/api/candles")
+def candles(
+    symbol: str = Query("EUR/USD OTC"),
+    timeframe: str = Query("5m"),
+    period: str = Query("1d"),
+    limit: int = Query(120, ge=20, le=600),
+) -> dict:
+    """Recent OHLC bars for the chart on the live tab.
+
+    Returned newest-last with an explicit array-of-objects shape rather than
+    column arrays, because the browser draws candles by index and a columnar
+    payload would need transposing client-side for no benefit at this size.
+
+    Volume is dropped on purpose: the proxy feed reports 0 for every bar, so a
+    volume pane would be a chart of nothing. Provenance travels with the bars
+    because a chart without it implies OTC data we do not have.
+    """
+    def produce() -> dict:
+        res = feed_mod.get_candles(symbol, timeframe, period)
+        if not res.usable or res.df is None:
+            return {"error": res.error or "no data", "warnings": res.warnings}
+
+        df = res.df.tail(limit)
+        bars = [
+            {
+                "t": int(idx.timestamp()),
+                "o": float(r.open),
+                "h": float(r.high),
+                "l": float(r.low),
+                "c": float(r.close),
+            }
+            for idx, r in zip(df.index, df.itertuples())
+        ]
+        return {
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "bars": bars,
+            "provenance": {
+                "source": res.source,
+                "feed_tier": res.feed_tier,
+                "otc": bool(res.asset and res.asset.otc),
+                "from_cache": res.from_cache,
+                "stale": res.stale,
+                "fetched_at": res.fetched_at,
+            },
+            "warnings": res.warnings,
+        }
+
+    return cached(f"candles:{symbol}:{timeframe}:{period}:{limit}", 60.0, produce)
+
+
 @app.get("/")
 def index() -> Any:
     f = WEB / "index.html"
